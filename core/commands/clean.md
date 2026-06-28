@@ -45,6 +45,54 @@ For each piece of code, check for violations:
 - [ ] No boolean/flag parameters
 - [ ] Command-Query Separation (do something OR return something, not both)
 - [ ] DRY - no duplicate code
+- [ ] **One level of abstraction per function** (see below — enforce strictly)
+
+**One Level of Abstraction Per Function (CRITICAL — enforce strictly):**
+
+A function should do one thing **at one level of abstraction**. Think in terms of
+"distance from the problem domain":
+
+| Level    | Example                      | Meaning               |
+| -------- | ---------------------------- | --------------------- |
+| High     | "Register user"              | Business intent       |
+| Medium   | "Validate email"             | Domain operation      |
+| Low      | `if (email.contains("@"))`   | Implementation detail |
+| Very Low | `charAt(3)`                  | Mechanical detail     |
+
+**Mixing these levels in one function is a violation** — your brain keeps switching
+gears (Uncle Bob calls this "mental stack pollution"). Flag and fix it.
+
+- [ ] **No function mixes high-level intent with low-level implementation detail.**
+- [ ] Each line in a function answers the same question at the same zoom level.
+- [ ] **Step-down rule:** code reads top-down as a narrative — each function is
+  followed by helpers at the *next* level down, never an abrupt drop into mechanics.
+
+Quick tests for an abstraction leak:
+1. "Does any line feel like it belongs in a different function?"
+2. "Would I explain this line to a junior developer using different vocabulary?"
+
+If yes → extract that detail into a named helper one level down.
+
+**Bad example (mixed levels):**
+```
+void registerUser(HttpRequest request) {
+    String email = request.getBody().get("email");  // Low-level HTTP detail
+    if (!email.contains("@")) { throw new IllegalArgumentException(); }  // Low-level validation
+    User user = new User(email, Status.ACTIVE);     // Domain construction
+    userRepository.save(user);                      // Persistence detail
+}
+```
+
+**Good example (single level):**
+```
+void registerUser(RegisterUserRequest request) {
+    User user = createUser(request);
+    saveUser(user);
+    notifyUser(user);
+}
+```
+Every line answers: "What does registering a user mean?" — no sudden drops into
+implementation detail.
 
 **File Length (CRITICAL — enforce strictly):**
 - [ ] **No file exceeds the project's file-length limit (~250 lines).** This is a hard limit, not a suggestion.
@@ -79,9 +127,11 @@ Apply refactoring following established patterns in the codebase:
 
 **For functions:**
 1. Extract to smaller, single-purpose functions
-2. Use descriptive names
-3. Reduce arguments (use objects for 3+ params)
-4. Remove flag parameters (split into separate functions)
+2. **Unify the abstraction level** — push low-level/implementation detail down into
+   named helpers so the parent reads as one story at one zoom level (step-down rule)
+3. Use descriptive names
+4. Reduce arguments (use objects for 3+ params)
+5. Remove flag parameters (split into separate functions)
 
 ### Step 5: Write Tests
 
