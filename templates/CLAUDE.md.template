@@ -1,0 +1,62 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**{{PROJECT_NAME}}** - {{PROJECT_DESCRIPTION}}
+
+## Development Commands
+
+```bash
+{{TEST_CMD}}        # Run tests
+{{BUILD_CMD}}       # Build for production
+{{LINT_CMD}}        # Lint
+```
+
+## Branch Naming
+
+All branches must be prefixed with `{{BRANCH_PREFIX}}`. Example:
+
+```bash
+git checkout -b {{BRANCH_PREFIX}}feature/my-feature-name
+```
+
+## Commit Guidelines
+
+Follow conventional commits (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`). Keep commits atomic, explain the "why," and ensure tests/build pass first. End commit messages with:
+
+```
+{{COAUTHOR_LINE}}
+```
+
+## Clean Code Principles
+
+This project follows the Clean Code standard in
+[.claude/standards/CLEAN_CODE.md](.claude/standards/CLEAN_CODE.md). Read it in full;
+the hard limits are:
+
+| Rule | Limit |
+|------|-------|
+| **File length** | ~250 lines — split if approaching |
+| **Function size** | 2-4 lines ideal, rarely >20 lines |
+| **Max indent depth** | 1-2 levels |
+| **Function arguments** | 0-2 ideal, never 3+ |
+| **Flag (boolean) arguments** | Never — split into two functions |
+
+Core rules: one level of abstraction per function, the step-down rule, Command-Query
+Separation, no side effects, one word per concept, DRY, delete unused code completely.
+
+**Code without tests is not clean.** Write a failing test first, then the minimal fix.
+
+## Harness
+
+This project uses the clean-code harness (agents, commands, standards) installed under
+`.claude/`. These files are local-only (excluded from git via `.git/info/exclude`) and
+are not pushed to the project's remote.
+
+- `/clean <target>` — refactor code to the Clean Code standard
+- `/commit` — conventional commit with verification
+- `/fix-bug <desc>` — test-first bug fix (RED → GREEN → REFACTOR)
+- `/create-plan` — milestone-based plan scaffold
+- Agents: `clean-code-reviewer`, `test-writer`
