@@ -22,7 +22,23 @@ functions, 0-2 args, no flag arguments, one level of abstraction per function).
 They're enforced as prose the model follows, plus the `clean-code-reviewer` agent
 and `/clean` command you run on demand.
 
-## Install into a project (default)
+## Quickest way: let an agent install it for you
+
+Open Claude Code in the project you want the harness in, and paste:
+
+```
+Install the clean-code harness into this project by following
+/path/to/claude-harness/AGENT_INSTALL.md
+```
+
+The agent reads [AGENT_INSTALL.md](AGENT_INSTALL.md), auto-detects the project's
+test/build/lint commands and branch convention, writes a config outside the repo,
+runs the installer, and verifies the harness is git-excluded — autonomously, no
+further input. It never commits or pushes; the harness stays local-only.
+
+(Replace `/path/to/claude-harness` with wherever you cloned this repo.)
+
+## Install into a project (manual)
 
 ```bash
 cd /path/to/your/project
