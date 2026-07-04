@@ -9,7 +9,7 @@ any of it to the project's repo**.
 ```
 core/
 ├── agents/      clean-code-reviewer, test-writer
-├── commands/    /clean, /commit, /fix-bug, /create-plan, /note
+├── commands/    /clean, /commit, /fix-bug, /create-plan, /redesign, /note
 └── standards/   CLEAN_CODE.md, REACT_COMPONENTS.md
 templates/
 └── CLAUDE.md.template

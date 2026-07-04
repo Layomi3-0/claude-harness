@@ -59,4 +59,5 @@ are not pushed to the project's remote.
 - `/commit` — conventional commit with verification
 - `/fix-bug <desc>` — test-first bug fix (RED → GREEN → REFACTOR)
 - `/create-plan` — milestone-based plan scaffold
+- `/redesign <page>` — generate 5 distinct UI design explorations
 - Agents: `clean-code-reviewer`, `test-writer`
