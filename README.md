@@ -13,7 +13,9 @@ core/
 │   ├── setup     /make_relevant, /prime
 │   ├── plan      /plan_chore, /plan_bug, /plan_feature, /create_plan
 │   ├── execute   /implement, /clean, /redesign
-│   └── ship      /commit, /pull_request, /note
+│   ├── ship      /commit, /pull_request, /note
+│   └── adw glue  /classify_issue, /validate
+├── adw/         AI Developer Workflow runner (opt-in, --with-adw)
 └── standards/   CLEAN_CODE.md, REACT_COMPONENTS.md
 templates/
 └── CLAUDE.md.template
@@ -151,6 +153,63 @@ damaging thing a PR body can get wrong.
 Assumes work is already committed; `/commit` owns commit creation and secret scanning.
 It refuses to open a PR from the default branch, won't force-push, and won't open a
 second PR on a branch that already has one.
+
+## Going AFK: the ADW runner
+
+Opt in with `./install.sh --with-adw`. Open a GitHub issue from your phone; a pull
+request appears while you're away from the keyboard.
+
+```
+issue opened ──► Cloudflare tunnel ──► trigger_webhook.py
+                                            │  ① verify HMAC signature
+                                            │  ② check author allowlist
+                                            ▼
+                                       adw_run.py
+   /classify_issue → branch → /plan_* → /implement → /validate ──► PR
+                                                         │
+                                                    FAIL └──► stop, report, no PR
+```
+
+Each arrow into a slash command is a **fresh `claude -p` process** with no shared
+context — the spec file on disk is the only thing crossing between planning and
+implementation, which is exactly why the planning commands are written to stand alone.
+
+Full setup in [core/adw/README.md](core/adw/README.md). The short version:
+
+```bash
+./install.sh --with-adw               # from the target repo
+cd .claude/adw && cp adw.env.sample adw.env    # then fill it in
+uv run health_check.py                # preflight
+uv run trigger_webhook.py             # terminal 1
+./expose_webhook.sh                   # terminal 2 — Cloudflare tunnel
+```
+
+### Security — read this before exposing anything
+
+The pipeline runs Claude Code with `--dangerously-skip-permissions`, because an
+unattended run cannot answer a permission prompt. **Two gates are the entire boundary
+between a GitHub event and unsupervised tool use on your machine:**
+
+1. **HMAC signature verification** against `GITHUB_WEBHOOK_SECRET` — proves the request
+   came from GitHub rather than from anyone who found your tunnel URL
+2. **Author allowlist** — an empty list authorizes *nobody*, deliberately, since the
+   alternative default turns a half-finished install into remote code execution
+
+`expose_webhook.sh` refuses to start without a secret configured. The allowlist is
+checked in the webhook *and* re-checked in `adw_run.py`, so a manual run can't bypass it.
+
+### How this differs from the tac-4 reference
+
+- **Validation gate.** tac-4 opens a PR whether or not tests pass — its plan templates
+  assert "zero regressions" that nothing ever checks. Here `/validate` returns a bare
+  `PASS`/`FAIL`; a `FAIL` pushes the branch, reports on the issue, and opens no PR.
+- **Signature verification and an author allowlist** — tac-4 has neither.
+- **Fewer agent calls.** Branch naming, commit messages, and locating the new plan file
+  are mechanical transforms with one right answer, so they're plain Python. tac-4 spends
+  four agent invocations on them, including one whose whole job is parsing a previous
+  agent's prose for a file path.
+- **Artifacts under `.claude/adw/runs/`** so they inherit the harness's git exclusion
+  rather than appearing in the target repo's `git status`.
 
 ## Quickest way: let an agent install it for you
 
