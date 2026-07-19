@@ -1,2 +1,6 @@
 *.bak
 .DS_Store
+__pycache__/
+*.pyc
+.claude/adw/adw.env
+.claude/adw/runs/

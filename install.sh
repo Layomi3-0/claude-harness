@@ -10,6 +10,7 @@
 #   ./install.sh --project <path>     # install into <path>/.claude
 #   ./install.sh --global             # install into ~/.claude
 #   ./install.sh --config <file>      # use a specific config (default: ./harness.config)
+#   ./install.sh --with-adw           # also install the ADW runner (.claude/adw)
 #
 set -euo pipefail
 
@@ -17,13 +18,15 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="project"
 TARGET_REPO="$PWD"
 CONFIG="$HARNESS_DIR/harness.config"
+WITH_ADW="no"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --global)  MODE="global"; shift ;;
-    --project) MODE="project"; TARGET_REPO="${2:?--project needs a path}"; shift 2 ;;
-    --config)  CONFIG="${2:?--config needs a file}"; shift 2 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    --global)   MODE="global"; shift ;;
+    --project)  MODE="project"; TARGET_REPO="${2:?--project needs a path}"; shift 2 ;;
+    --config)   CONFIG="${2:?--config needs a file}"; shift 2 ;;
+    --with-adw) WITH_ADW="yes"; shift ;;
+    -h|--help)  sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -68,8 +71,24 @@ install_into() {
   echo "✓ agents, commands, standards → $base"
 }
 
+install_adw() {
+  # The ADW runner. Copies the scripts but never clobbers adw.env (secrets) or
+  # runs/ (transcripts) — cp -R overwrites only files that exist in the source.
+  local base="$1"
+  copy_tree adw "$base/adw"
+  chmod +x "$base/adw"/*.py "$base/adw"/*.sh 2>/dev/null || true
+  echo "✓ adw runner → $base/adw"
+  if [ -f "$base/adw/adw.env" ]; then
+    echo "• adw.env already exists — left untouched"
+  else
+    echo "  next: cp $base/adw/adw.env.sample $base/adw/adw.env  &&  edit it"
+    echo "        then: cd $base/adw && uv run health_check.py"
+  fi
+}
+
 if [ "$MODE" = "global" ]; then
   install_into "$HOME/.claude"
+  [ "$WITH_ADW" = "yes" ] && echo "• --with-adw is per-project only (it needs a git remote) — skipped"
   echo "Done. Re-run this script after editing the harness to update."
   exit 0
 fi
@@ -77,6 +96,7 @@ fi
 # ── Project mode ──
 CLAUDE_DIR="$TARGET_REPO/.claude"
 install_into "$CLAUDE_DIR"
+[ "$WITH_ADW" = "yes" ] && install_adw "$CLAUDE_DIR"
 
 # Stamp CLAUDE.md if the project doesn't have one yet. A stamped CLAUDE.md is
 # harness-generated, so we also hide it from the repo. A pre-existing one is the
