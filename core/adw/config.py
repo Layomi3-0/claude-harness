@@ -8,11 +8,17 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 from utils import adw_home
 
-load_dotenv(adw_home() / "adw.env")
+_ENV_FILE = adw_home() / "adw.env"
+load_dotenv(_ENV_FILE)
+
+# Values read from adw.env ONLY, ignoring the ambient environment. Needed for
+# ANTHROPIC_API_KEY: load_dotenv never overrides an already-set variable, so a stale
+# key exported from a shell profile would otherwise look like deliberate config.
+_FILE_ONLY = dotenv_values(_ENV_FILE)
 
 
 def _csv(name: str) -> List[str]:
@@ -29,7 +35,9 @@ class AdwConfig:
     webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     port: int = int(os.getenv("ADW_PORT", "8001"))
     model: str = os.getenv("ADW_MODEL", "sonnet")
-    anthropic_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    # Blank means "use Claude Code's own auth" — normally a claude.ai subscription.
+    # Deliberately file-only: see _FILE_ONLY above.
+    anthropic_key: str = (_FILE_ONLY.get("ANTHROPIC_API_KEY") or "").strip()
     claude_path: str = os.getenv("CLAUDE_CODE_PATH", "claude")
     github_pat: str = os.getenv("GITHUB_PAT", "")
 
@@ -58,8 +66,9 @@ class AdwConfig:
                 "so anyone who learns your tunnel URL could trigger runs. Generate one "
                 "with `openssl rand -hex 32` and paste the same value into GitHub."
             )
-        if not self.anthropic_key:
-            errors.append("ANTHROPIC_API_KEY is unset — Claude Code cannot run headless.")
+        # ANTHROPIC_API_KEY is intentionally NOT required. Claude Code authenticates
+        # with a claude.ai subscription by default; an API key is only for running as
+        # a different identity. health_check.py probes real auth instead of guessing.
         return errors
 
 

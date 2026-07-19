@@ -30,20 +30,26 @@ def check_claude_installed() -> Optional[str]:
 
 
 def _claude_env() -> dict:
-    """Minimal environment for the child process."""
-    env = {
-        "ANTHROPIC_API_KEY": config.anthropic_key,
-        "CLAUDE_CODE_PATH": config.claude_path,
-        "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true",
-        "HOME": os.getenv("HOME", ""),
-        "USER": os.getenv("USER", ""),
-        "PATH": os.getenv("PATH", ""),
-        "SHELL": os.getenv("SHELL", ""),
-    }
+    """Environment for the child `claude` process.
+
+    Inherits the parent environment so Claude Code can reach its own credentials —
+    normally a claude.ai subscription, stored in the macOS Keychain or ~/.claude.
+
+    ANTHROPIC_API_KEY is then actively REMOVED unless adw.env explicitly supplies one.
+    A stale key exported from a shell profile otherwise takes precedence over working
+    subscription auth, and every node dies in a 401 retry loop that looks like a hang
+    rather than an auth failure.
+    """
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"] = "true"
+
+    if config.anthropic_key:
+        env["ANTHROPIC_API_KEY"] = config.anthropic_key
     if config.github_pat:
         env["GITHUB_PAT"] = config.github_pat
         env["GH_TOKEN"] = config.github_pat
-    return {k: v for k, v in env.items() if v}
+    return env
 
 
 def _parse_result(output_file: str) -> Tuple[Optional[str], bool]:
