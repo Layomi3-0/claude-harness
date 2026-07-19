@@ -20,12 +20,8 @@ fi
 
 TOKEN="$(grep -E '^CLOUDFLARED_TUNNEL_TOKEN=' "$ENV_FILE" | cut -d= -f2- | tr -d '[:space:]')"
 SECRET="$(grep -E '^GITHUB_WEBHOOK_SECRET=' "$ENV_FILE" | cut -d= -f2- | tr -d '[:space:]')"
-
-if [ -z "$TOKEN" ]; then
-  echo "CLOUDFLARED_TUNNEL_TOKEN is not set in adw.env." >&2
-  echo "Create a tunnel at https://one.dash.cloudflare.com → Networks → Tunnels" >&2
-  exit 1
-fi
+PORT="$(grep -E '^ADW_PORT=' "$ENV_FILE" | cut -d= -f2- | tr -d '[:space:]')"
+PORT="${PORT:-8001}"
 
 # Refuse to expose an unauthenticated endpoint to the public internet.
 if [ -z "$SECRET" ]; then
@@ -43,5 +39,21 @@ if ! command -v cloudflared >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting Cloudflare tunnel → 127.0.0.1:$(grep -E '^ADW_PORT=' "$ENV_FILE" | cut -d= -f2- || echo 8001)"
-exec cloudflared tunnel run --token "$TOKEN"
+# Named tunnel (stable hostname) if a token is configured; otherwise a quick tunnel,
+# which needs no Cloudflare account at all. The quick tunnel's hostname is random and
+# CHANGES ON EVERY RESTART, so the GitHub webhook URL must be updated each time —
+# fine for testing, not for anything you leave running.
+if [ -n "$TOKEN" ]; then
+  echo "Starting named Cloudflare tunnel → 127.0.0.1:$PORT"
+  exec cloudflared tunnel run --token "$TOKEN"
+fi
+
+echo "No CLOUDFLARED_TUNNEL_TOKEN set — starting a quick tunnel (no account needed)."
+echo
+echo "  ⚠️  The URL below changes every restart. Paste it into GitHub's webhook"
+echo "      settings as https://<host>/gh-webhook each time you restart."
+echo "      For a stable URL, create a named tunnel at"
+echo "      https://one.dash.cloudflare.com → Networks → Tunnels, and put its"
+echo "      token in adw.env."
+echo
+exec cloudflared tunnel --url "http://127.0.0.1:$PORT"
