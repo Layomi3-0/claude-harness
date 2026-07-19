@@ -30,6 +30,38 @@ VALID_CLASSES = {"/plan_chore", "/plan_bug", "/plan_feature"}
 SPECS_DIR = "specs"
 
 
+def parse_verdict(raw: str) -> ValidationResult:
+    """Extract PASS/FAIL from the validator's reply.
+
+    The prompt asks for a single bare line, but models reliably add a summary
+    sentence or a code fence anyway. Treating that as unparseable produces a FALSE
+    NEGATIVE — a clean run reported as failed, with no PR — so the parser scans
+    instead of assuming a shape.
+
+    Scans from the END because a decisive verdict comes last when there is preamble.
+    Only a line that IS the verdict counts; prose merely containing the word "pass"
+    does not. Anything genuinely undecidable stays FAIL, since silently assuming
+    success would defeat the gate.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        text = "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith("```")
+        )
+
+    lines = [line.strip().strip("*`") for line in text.splitlines() if line.strip()]
+
+    for line in reversed(lines):
+        head, _, detail = line.partition(":")
+        head = head.strip().upper()
+        if head == "PASS":
+            return ValidationResult(verdict="PASS", detail=detail.strip())
+        if head == "FAIL":
+            return ValidationResult(verdict="FAIL", detail=detail.strip() or line)
+
+    return ValidationResult(verdict="FAIL", detail=f"unparseable verdict: {raw[:300]}")
+
+
 class Pipeline:
     def __init__(self, issue_number: int, adw_id: str):
         self.issue_number = issue_number
@@ -88,12 +120,19 @@ class Pipeline:
         return name
 
     def plan(self, issue_class: str) -> str:
+        # Snapshot first: the repo may already hold uncommitted specs from earlier
+        # work, and only the file this run creates may be handed to /implement.
+        before = git_ops.list_specs(SPECS_DIR)
         self.say("planner", "🧠 Building the plan…")
         self.call("planner", issue_class, [self.issue.as_prompt()])
 
-        specs = git_ops.new_files_in(SPECS_DIR)
+        specs = git_ops.newly_created(before, git_ops.list_specs(SPECS_DIR))
         if not specs:
-            self.abort("planner", f"No new plan file appeared in {SPECS_DIR}/")
+            self.abort(
+                "planner",
+                f"No new plan file appeared in {SPECS_DIR}/ — the planner reported "
+                f"success but wrote nothing. See runs/{self.adw_id}/planner/.",
+            )
         if len(specs) > 1:
             self.logger.warning(f"Multiple new specs {specs}; using {specs[0]}")
 
@@ -110,17 +149,9 @@ class Pipeline:
         self.say("implementor", "✅ Implementation complete")
 
     def validate(self) -> ValidationResult:
-        """The gate. /validate returns a bare PASS or FAIL:<reason>."""
+        """The gate. /validate should answer PASS or FAIL:<reason>."""
         self.say("validator", "🧪 Running validation…")
-        raw = self.call("validator", "/validate", [])
-        verdict, _, detail = raw.partition(":")
-        verdict = verdict.strip().upper()
-
-        if verdict not in {"PASS", "FAIL"}:
-            # An unparseable verdict is treated as failure. Assuming PASS here would
-            # defeat the entire purpose of having a gate.
-            return ValidationResult(verdict="FAIL", detail=f"unparseable verdict: {raw[:300]}")
-        return ValidationResult(verdict=verdict, detail=detail.strip())
+        return parse_verdict(self.call("validator", "/validate", []))
 
     def open_pr(self, issue_class: str, branch: str, plan_file: str) -> Optional[str]:
         kind = git_ops.TYPE_BY_CLASS.get(issue_class, "chore")
