@@ -8,6 +8,7 @@ that genuinely need judgment.
 
 import re
 import subprocess
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from utils import repo_root
@@ -52,16 +53,23 @@ def has_changes() -> bool:
     return bool(_git("status", "--porcelain", check=False).stdout.strip())
 
 
-def new_files_in(directory: str) -> List[str]:
-    """Untracked files under `directory` — how the new plan file is located, without
-    asking an agent to parse its own prose for a path."""
-    result = _git("status", "--porcelain", "--", directory, check=False)
-    paths = []
-    for line in result.stdout.splitlines():
-        status, _, path = line.partition(" ")
-        if "?" in status or "A" in status:
-            paths.append(path.strip())
-    return paths
+def list_specs(directory: str) -> set:
+    """Every .md file under `directory`, tracked or not, as repo-relative paths.
+
+    Read from the filesystem rather than `git status`, deliberately. Git collapses a
+    wholly-untracked directory to a single `?? specs/` entry, so status parsing hands
+    back a directory instead of a file — and it cannot distinguish a spec written by
+    this run from one that was already sitting there uncommitted.
+    """
+    base = repo_root() / directory
+    if not base.is_dir():
+        return set()
+    return {str(p.relative_to(repo_root())) for p in base.rglob("*.md")}
+
+
+def newly_created(before: set, after: set) -> List[str]:
+    """Specs that appeared between two snapshots. Sorted for deterministic choice."""
+    return sorted(after - before)
 
 
 def commit_all(message: str) -> Tuple[bool, str]:
