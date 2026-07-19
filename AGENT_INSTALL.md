@@ -37,8 +37,8 @@ The harness lives at: `/Users/jkupo/Documents/Resources/claude-harness`
    excluded via `.git/info/exclude`. If the project already had a `CLAUDE.md`, note
    that it was left untouched (and the Clean Code section can be merged manually).
 
-6. **Make it repo-relevant:** now run the `/make-relevant` command that was just
-   installed (`.claude/commands/make-relevant.md`) — follow its instructions to
+6. **Make it repo-relevant:** now run the `/make_relevant` command that was just
+   installed (`.claude/commands/make_relevant.md`) — follow its instructions to
    analyze this repo and write `.claude/PROJECT.md`. This is what turns the generic
    harness into one that knows this codebase. Crucially it **executes** the candidate
    validation commands rather than trusting the manifest, so the recorded commands are
@@ -48,7 +48,7 @@ The harness lives at: `/Users/jkupo/Documents/Resources/claude-harness`
    correct the config and re-run the installer.
 
 7. **Report**: list what was installed (commands, agents, standards), the config
-   values you detected, the validation-command status from `/make-relevant`, and
+   values you detected, the validation-command status from `/make_relevant`, and
    confirm the harness is invisible to the repo's remote.
 
 ## Rules

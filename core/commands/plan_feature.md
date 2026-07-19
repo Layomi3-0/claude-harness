@@ -3,19 +3,19 @@
 Create a plan in `{{SPECS_PATH}}/*.md` that implements the `Feature`, using the exact
 `Plan Format` below.
 
-**Usage:** `/plan-feature <feature-description>`
+**Usage:** `/plan_feature <feature-description>`
 
-## When to Use This vs `/create-plan`
+## When to Use This vs `/create_plan`
 
 | Command | Produces | Use when |
 |---------|----------|----------|
-| `/plan-feature` | One spec file, executable by `/implement` in a single run | A feature that one agent can ship in one pass |
-| `/create-plan` | A milestone tree under `docs/plans/active/` | Multi-day work needing checkpoints across many sessions |
+| `/plan_feature` | One spec file, executable by `/implement` in a single run | A feature that one agent can ship in one pass |
+| `/create_plan` | A milestone tree under `docs/plans/active/` | Multi-day work needing checkpoints across many sessions |
 
-For bugs, use `/fix-bug` — it does its own diagnosis and spec inline.
+For bugs, use `/plan_bug` — same two-phase shape, with root cause analysis.
 
-If the feature would take more than one focused agent run, use `/create-plan` instead
-and let each milestone become its own `/plan-feature`.
+If the feature would take more than one focused agent run, use `/create_plan` instead
+and let each milestone become its own `/plan_feature`.
 
 ## CRITICAL: You Are Not Building the Feature
 
@@ -28,7 +28,7 @@ execute. Do not edit project source files.
 
 Read `.claude/PROJECT.md` first — stack, layout, relevant files, validation commands,
 conventions. **Defer to it over any default in this file.** If it doesn't exist, tell
-the user to run `/make-relevant`.
+the user to run `/make_relevant`.
 
 ### Step 2: Find the Existing Pattern First
 
