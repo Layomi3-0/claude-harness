@@ -4,7 +4,7 @@ Create a plan in `{{SPECS_PATH}}/*.md` that resolves the `Chore`, using the exac
 `Plan Format` below. Follow the `Instructions` to build the plan, then follow
 `Report`.
 
-**Usage:** `/plan-chore <chore-description>`
+**Usage:** `/plan_chore <chore-description>`
 
 A chore is maintenance work with no new user-facing behavior: dependency bumps,
 renames, dead code removal, config changes, replacing a pattern across files.
@@ -25,7 +25,7 @@ If you catch yourself editing project source files, stop — that is the job of
 Read `.claude/PROJECT.md` first. It defines this repo's stack, layout, relevant files,
 validation commands, and conventions — **defer to it over any default in this file.**
 
-If `.claude/PROJECT.md` does not exist, tell the user to run `/make-relevant` first,
+If `.claude/PROJECT.md` does not exist, tell the user to run `/make_relevant` first,
 then proceed with reduced confidence using `README.md` and the manifest.
 
 ### Step 2: Research

@@ -1,6 +1,6 @@
 # Implement Command
 
-Execute a plan produced by `/plan-chore`, `/plan-feature`, or `/fix-bug --plan-only`.
+Execute a plan produced by `/plan_chore`, `/plan_bug`, or `/plan_feature`.
 
 **Usage:** `/implement <path-to-plan-file>`
 

@@ -56,24 +56,24 @@ This project uses the clean-code harness (agents, commands, standards) installed
 are not pushed to the project's remote.
 
 **Setup**
-- `/make-relevant` — analyze this repo, write `.claude/PROJECT.md`. Run once, first.
+- `/make_relevant` — analyze this repo, write `.claude/PROJECT.md`. Run once, first.
 - `/prime` — load the repo into context at session start (cheap, read-only)
 
 **Plan** (these write a spec and change no code)
-- `/plan-chore <desc>` — spec for maintenance work
-- `/plan-feature <desc>` — spec for a feature
-- `/create-plan` — milestone tree for multi-session work
+- `/plan_chore <desc>` — spec for maintenance work
+- `/plan_bug <desc>` — spec for a bug: root cause, failing test, minimal fix,
+  prove the test guards it, sweep for siblings
+- `/plan_feature <desc>` — spec for a feature
+- `/create_plan` — milestone tree for multi-session work
 
 **Execute**
-- `/fix-bug <desc>` — full bug cycle: baseline → root cause → spec → failing test →
-  minimal fix → prove the test guards it → sweep for siblings → validate.
-  Add `--plan-only` to stop after the spec.
 - `/implement <spec-file>` — execute a spec, gated on validation passing
 - `/clean <target>` — refactor to the Clean Code standard
 - `/redesign <page>` — 5 distinct UI design explorations
 
 **Ship**
 - `/commit` — conventional commit with verification
+- `/pull_request` — push the branch and open a PR with honest verification status
 - `/note <topic>` — append to the project's dev notes
 
 **Agents:** `clean-code-reviewer`, `test-writer`
@@ -82,12 +82,12 @@ are not pushed to the project's remote.
 
 `.claude/PROJECT.md` holds this repo's verified stack, layout, relevant-files map,
 validation commands, and conventions. Harness commands read it first and defer to it.
-If it's missing, run `/make-relevant`.
+If it's missing, run `/make_relevant`.
 
 ### Typical flow
 
 ```
-/plan-feature add CSV export      # → specs/add-csv-export.md, no code touched
+/plan_feature add CSV export      # → specs/add-csv-export.md, no code touched
                                   # review the spec here — cheapest place to catch a wrong approach
 /implement specs/add-csv-export.md
 /commit

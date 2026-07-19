@@ -5,16 +5,16 @@ of a session in an unfamiliar repo, or after a context compaction.
 
 **Usage:** `/prime [optional-area-to-focus-on]`
 
-## When to Use This vs `/make-relevant`
+## When to Use This vs `/make_relevant`
 
 | Command | Cost | Output | Frequency |
 |---------|------|--------|-----------|
-| `/make-relevant` | Expensive — runs commands, inspects deeply | Writes `.claude/PROJECT.md` | Once per repo, then on major changes |
+| `/make_relevant` | Expensive — runs commands, inspects deeply | Writes `.claude/PROJECT.md` | Once per repo, then on major changes |
 | `/prime` | Cheap — reads only | Nothing written; context loaded | Start of any session |
 
 `/prime` reads `PROJECT.md` if it exists, which makes it fast. If it doesn't exist,
 `/prime` falls back to reading the repo directly and should tell the user to run
-`/make-relevant` for the durable version.
+`/make_relevant` for the durable version.
 
 ## Instructions
 
