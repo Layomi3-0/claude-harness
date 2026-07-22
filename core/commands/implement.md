@@ -23,9 +23,27 @@ a slightly different repo state can be stale, can have missed a caller, can prop
 pattern the codebase has since moved away from. Executing a plan you can see is broken
 is the worst available outcome: it produces a confident, tested, entirely wrong change.
 
-Report the conflict to the user and ask how to proceed. Do not silently "improve" the
-plan either — a silent deviation makes the plan file a lie about what the repo now
-contains.
+Do not silently "improve" the plan either — a silent deviation makes the plan file a
+lie about what the repo now contains.
+
+**How to ask (you may be running unattended).** There may be no human at this
+terminal — you might be a headless pipeline node whose reply nobody reads as chat.
+So asking in prose and stopping is the same as doing nothing. The contract:
+
+- **Routine judgement calls are yours.** Naming, file placement, idiom choices,
+  small ambiguities with an obvious closest-to-existing-convention answer: decide,
+  proceed, and record the decision in your final report. Do NOT ask about these.
+- **Genuinely human-only decisions** — the plan explicitly says "confirm with the
+  requester first", or executing would contradict the plan, or two readings of the
+  requirement produce materially different products — stop WITHOUT implementing
+  and end your reply with a line in exactly this form:
+
+  `ADW_QUESTION: <one clear, self-contained question a non-reader of the plan can answer>`
+
+  Everything after that marker is delivered to the requester on the issue thread;
+  the run parks and resumes with their answer folded into the plan. Never bury a
+  question mid-prose without the marker, and never emit the marker AND also
+  implement — it is either code or one question, not both.
 
 ### Step 3: Execute
 

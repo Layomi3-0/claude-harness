@@ -19,13 +19,15 @@ regressions" that nothing ever checked.
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Optional, Tuple
 
 import git_ops
+import resume
 from agent import run_template
 from config import config
 from data_types import AgentTemplateRequest, GitHubIssue, IssueClass, ValidationResult
-from github import add_label, comment_on_issue, fetch_issue, format_comment
+from github import add_label, comment_on_issue, fetch_issue, format_comment, remove_label
 from utils import make_adw_id, setup_logger
 
 VALID_CLASSES = {"/plan_chore", "/plan_bug", "/plan_feature"}
@@ -185,12 +187,97 @@ class Pipeline:
         git_ops.commit_all(f"docs: add plan for #{self.issue_number}\n\nADW-ID: {self.adw_id}")
         return plan_file
 
-    def implement(self, plan_file: str) -> None:
+    def implement(self, plan_file: str) -> Optional[str]:
+        """Run /implement. Returns the implementor's blocking question when it hit
+        a human-only decision (the ADW_QUESTION contract in commands/implement.md)
+        instead of writing code; None means it implemented."""
         self.say("implementor", "🔨 Implementing the plan…")
-        self.call("implementor", "/implement", [plan_file])
+        output = self.call("implementor", "/implement", [plan_file])
+
+        question = resume.extract_question(output)
+        if question:
+            return question
+
         if not git_ops.has_changes():
-            self.logger.warning("Implementation produced no file changes")
+            # Guard against the #358 failure shape: an implementor that neither
+            # changed files nor asked. An empty diff validates trivially green,
+            # so letting it through would open a PR containing only the plan.
+            self.abort(
+                "implementor",
+                "Implementor finished without changing any files and without asking "
+                f"an `{resume.QUESTION_SENTINEL}` question — nothing real to validate. "
+                f"See runs/{self.adw_id}/implementor/ for what it said instead.",
+            )
         self.say("implementor", "✅ Implementation complete")
+        return None
+
+    def pause_for_answer(
+        self, question: str, issue_class: str, branch: str, plan_file: str
+    ) -> None:
+        """Park the run: post the question on the issue, keep the worktree, save
+        resumable state, and exit cleanly. NOT a failure — the run is waiting."""
+        resume.save_awaiting(
+            self.adw_id, self.issue_number, issue_class, branch, plan_file,
+            str(git_ops.workdir()), question,
+        )
+        add_label(self.issue_number, "adw-waiting")
+        self.say(
+            "implementor",
+            "🙋 **Blocked on a decision only you can make:**\n\n"
+            f"> {question}\n\n"
+            f"Reply with your answer in a normal comment, then comment "
+            f"`{config.trigger_phrase}` to resume this run — it will pick up your "
+            "reply, fold it into the plan, and continue on the same branch "
+            f"(`{branch}`). Worktree kept at `{git_ops.workdir()}`.",
+        )
+        sys.exit(0)
+
+    def resume_run(self, state: dict) -> None:
+        """Continue a parked run: same worktree/branch/plan, requester's answers
+        folded into the plan file so the committed spec records the decision."""
+        worktree = Path(state["worktree"])
+        if not worktree.is_dir():
+            self.say(
+                "ops",
+                f"⚠️ Found a run awaiting your answer (`{state['adw_id']}`) but its "
+                f"worktree is gone (`{worktree}`) — starting fresh instead.",
+            )
+            resume.mark_resumed(state, self.adw_id)
+            return self.fresh_run()
+
+        answers = resume.answers_since(
+            self.issue.comments, state["asked_at"], config.is_authorized,
+            config.trigger_phrase,
+        )
+        if not answers:
+            self.say(
+                "ops",
+                "⏸️ Still waiting: I couldn't find an answer to the question above. "
+                "Reply with your answer in a comment, then comment "
+                f"`{config.trigger_phrase}` again.",
+            )
+            sys.exit(0)
+
+        git_ops.set_workdir(worktree)
+        plan_file, branch = state["plan_file"], state["branch"]
+        with open(worktree / plan_file, "a") as f:
+            f.write(resume.decisions_section(state["question"], answers, self.adw_id))
+        git_ops.commit_all(
+            f"docs: fold requester decisions into plan for #{self.issue_number}\n\n"
+            f"ADW-ID: {self.adw_id}"
+        )
+        resume.mark_resumed(state, self.adw_id)
+        remove_label(self.issue_number, "adw-waiting")
+        self.say(
+            "ops",
+            f"▶️ Resuming run `{state['adw_id']}` as `{self.adw_id}` with your "
+            f"answer{'s' if len(answers) > 1 else ''} folded into `{plan_file}`.",
+        )
+
+        question = self.implement(plan_file)
+        if question:
+            self.pause_for_answer(question, state["issue_class"], branch, plan_file)
+        self.finish(state["issue_class"], branch, plan_file)
 
     def validate(self) -> ValidationResult:
         """The gate. /validate should answer PASS or FAIL:<reason>."""
@@ -217,15 +304,36 @@ class Pipeline:
     def run(self) -> None:
         self.issue = fetch_issue(self.issue_number)
         self.authorize()
-        self.say("ops", f"🚀 ADW run `{self.adw_id}` starting")
-        add_label(self.issue_number, "adw-running")
 
+        # A trigger on an issue whose previous run parked on a question resumes
+        # that run (same worktree, branch, and plan) instead of starting over.
+        state = resume.find_awaiting(self.issue_number)
+        if state:
+            self.say(
+                "ops",
+                f"🚀 ADW run `{self.adw_id}` starting — found run "
+                f"`{state['adw_id']}` awaiting your answer",
+            )
+            return self.resume_run(state)
+
+        self.say("ops", f"🚀 ADW run `{self.adw_id}` starting")
+        self.fresh_run()
+
+    def fresh_run(self) -> None:
+        add_label(self.issue_number, "adw-running")
         issue_class = self.classify()
         branch = self.worktree(issue_class)
         self.setup_workspace()
         plan_file = self.plan(issue_class)
-        self.implement(plan_file)
 
+        question = self.implement(plan_file)
+        if question:
+            self.pause_for_answer(question, issue_class, branch, plan_file)
+        self.finish(issue_class, branch, plan_file)
+
+    def finish(self, issue_class: str, branch: str, plan_file: str) -> None:
+        """Validate -> commit -> push -> (PASS only) PR. Shared by fresh and
+        resumed runs so the gate can never be bypassed by either path."""
         result = self.validate()
         git_ops.commit_all(
             f"{git_ops.TYPE_BY_CLASS.get(issue_class, 'chore')}: "

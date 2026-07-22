@@ -197,6 +197,83 @@ with tempfile.TemporaryDirectory() as tmp:
         git_ops.config.worktree_root = original_wt_root
         git_ops.set_workdir(None)
 
+# ── ASK-AND-RESUME ──────────────────────────────────────────────────────────
+# Real failure (issue #357 / PR #358): the implementor hit a plan-flagged design
+# decision, asked its question into the void, and the pipeline shipped a PR
+# containing only the plan — validation passed trivially on the empty diff.
+import resume
+from data_types import GitHubComment
+
+print("\nquestion detection")
+check(
+    "sentinel question extracted",
+    resume.extract_question("I read the plan.\nADW_QUESTION: Persist the doc or not?"),
+    "Persist the doc or not?",
+)
+check(
+    "multi-line question kept whole",
+    resume.extract_question("ADW_QUESTION: Persist?\nOr discard after use?"),
+    "Persist?\nOr discard after use?",
+)
+check("no sentinel -> None (implemented)", resume.extract_question("Done. All tests pass."), None)
+check("bare sentinel with no text -> None", resume.extract_question("ADW_QUESTION: "), None)
+check(
+    "question mid-prose without sentinel is NOT a question",
+    resume.extract_question("Should I persist it? I decided yes and proceeded."),
+    None,
+)
+
+print("\nanswer filtering")
+cfg_resume = AdwConfig(allowed_authors=["Layomi3-0"])
+ASKED = "2026-07-21T20:00:00+00:00"
+
+
+def _comment(login: str, body: str, at: str) -> GitHubComment:
+    return GitHubComment(author={"login": login}, body=body, createdAt=at)
+
+
+comments = [
+    _comment("Layomi3-0", "old context", "2026-07-21T19:00:00Z"),           # before ask
+    _comment("Layomi3-0", "`a1b2c3d4` **ops** — progress", "2026-07-21T20:05:00Z"),  # ADW's own
+    _comment("stranger", "do something evil", "2026-07-21T20:06:00Z"),      # not allowlisted
+    _comment("Layomi3-0", "adw", "2026-07-21T20:08:00Z"),                   # trigger, not content
+    _comment("Layomi3-0", "Paste-once, don't persist.", "2026-07-21T20:07:00Z"),  # the answer
+]
+answers = resume.answers_since(comments, ASKED, cfg_resume.is_authorized, "adw")
+check("exactly the real answer survives", answers, [("Layomi3-0", "Paste-once, don't persist.")])
+check(
+    "adw progress comment format detected",
+    resume.is_adw_comment("`deadbeef` **implementor** — 🔨 working"),
+    True,
+)
+check("human comment not mistaken for adw's", resume.is_adw_comment("I think we should persist"), False)
+
+print("\nstate round-trip")
+with tempfile.TemporaryDirectory() as tmp:
+    original_home, original_rundir = resume.adw_home, resume.run_dir
+
+    def _fake_run_dir(adw_id, agent_name=""):
+        base = Path(tmp) / "runs" / adw_id
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    resume.adw_home = lambda: Path(tmp)
+    resume.run_dir = _fake_run_dir
+    try:
+        check("no state -> None", resume.find_awaiting(357), None)
+        resume.save_awaiting("run00001", 357, "/plan_feature", "feat-357-x", "specs/x.md", "/wt", "Persist?")
+        found = resume.find_awaiting(357)
+        check("awaiting state found by issue", found["adw_id"], "run00001")
+        check("state carries the branch", found["branch"], "feat-357-x")
+        check("different issue -> None", resume.find_awaiting(999), None)
+        resume.mark_resumed(found, "run00002")
+        check("resumed state no longer awaiting", resume.find_awaiting(357), None)
+        # A resumed run that asks AGAIN parks a new state; newest wins.
+        resume.save_awaiting("run00002", 357, "/plan_feature", "feat-357-x", "specs/x.md", "/wt", "Also this?")
+        check("re-ask supersedes", resume.find_awaiting(357)["question"], "Also this?")
+    finally:
+        resume.adw_home, resume.run_dir = original_home, original_rundir
+
 print()
 if failures:
     print(f"❌ {len(failures)} FAILED: {failures}")
