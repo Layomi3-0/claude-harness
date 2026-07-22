@@ -56,19 +56,52 @@ discriminates between them. A plan that says "I narrowed it to two candidates, h
 how to tell them apart" is worth far more than a confident wrong one — confident wrong
 diagnoses produce fixes that pass tests and don't fix the bug.
 
-### 5. Think
+### 5. Find where the test belongs
+
+Do not design the test in the abstract. Locate the existing tests that cover the buggy
+code — glob the test directory, grep for the failing function or component — and read
+two or three of them.
+
+You are looking for the file the new test belongs in, the naming convention, the setup
+and fixture helpers already available, and how this repo builds the state your test
+needs. A plan that invents a fixture the repo already has, or puts the test somewhere
+tests don't live, costs the implementing agent a discovery pass you could have spent
+once here.
+
+If no test covers this area at all, say so in the plan — the implementor is then also
+establishing a pattern, which is worth flagging.
+
+### 6. Match the test to the kind of bug
+
+The failing test must pin down the *specific* defect, not merely touch the code. What
+that means depends on the bug:
+
+| Bug kind | The test must pin down |
+|---|---|
+| Wrong value / calculation | The exact expected output for the exact triggering input — not just "no error" |
+| Validation | That bad input is *rejected*, and that good input still passes |
+| State / lifecycle | State after the sequence of actions, not just the initial render |
+| Async / timing | That the result is correct *after* settling, and awaits rather than sleeps |
+| Rendering / output | The user-visible result, queried the way a user finds it |
+| Edge case (null/empty/boundary) | Both that it no longer throws *and* what it returns instead |
+| Data integrity / persistence | That the stored state is correct, read back independently of the write |
+
+A test asserting "it doesn't crash" almost never guards a bug. The bug can come back as
+a wrong value and the suite stays green.
+
+### 7. Think
 
 Use your reasoning model. **THINK HARD** about the bug, its root cause, and the steps
 to fix it properly. Think about what *else* the same root cause is breaking silently.
 
-### 6. Be surgical
+### 8. Be surgical
 
 Plan the **minimal** number of changes that fix the bug. Solve the bug at hand and
 don't fall off track. No refactoring, no adjacent cleanup, no features. Keep it simple.
 
 If the plan needs a new dependency, say so explicitly in `Notes` and justify it.
 
-### 7. Write the plan
+### 9. Write the plan
 
 Create `{{SPECS_PATH}}/<descriptive-slug>.md`, named after the bug. **Replace every
 `<placeholder>`.** Add as much detail as needed to fix the bug.
@@ -103,9 +136,15 @@ If confidence is low, list competing hypotheses and the experiment that discrimi
 between them.>
 
 ## The Failing Test
-- **File:** <path, matching this repo's test conventions>
+- **File:** <exact path. Say whether it's an existing file to extend or a new one.>
+- **Follows the pattern in:** <path to a real test you read in step 5, and the setup or
+  fixture helpers it uses that this test should reuse. If nothing covers this area yet,
+  write "no existing coverage — establishing the pattern" and say which convention
+  you're following instead.>
+- **Bug kind:** <from the table above>
 - **Name:** <test name>
-- **Asserts:** <the correct behavior it demands>
+- **Asserts:** <the correct behavior it demands, at the specificity the table requires
+  for this bug kind — a concrete expected value, not "does not throw">
 - **Expected failure before the fix:** <the specific assertion message you expect —
   not merely "it errors">
 
@@ -192,6 +231,9 @@ Reread the plan as the implementing agent, with zero context:
 
 - [ ] Is the root cause a *cause*, or did I just describe the symptom again?
 - [ ] Would task 2 produce a test that genuinely fails now, for the stated reason?
+- [ ] Did I read real tests in this repo, or invent a file path and a fixture?
+- [ ] Does the assertion pin down the actual defect, or would it pass again if the bug
+      returned in a slightly different form?
 - [ ] Is the fix minimal — am I smuggling in a refactor?
 - [ ] Are the validation commands real ones from `PROJECT.md`?
 - [ ] Are the pre-existing failures recorded in `Notes`?

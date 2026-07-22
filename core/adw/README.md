@@ -8,15 +8,41 @@ issue opened ──► Cloudflare tunnel ──► trigger_webhook.py
                                             │  ② check author allowlist
                                             ▼
                                        adw_run.py
-   /classify_issue → branch → /plan_* → /implement → /validate ──► PR
-                                                         │
-                                                    FAIL └──► stop, report, no PR
+   /classify_issue → worktree → /plan_* → /implement → /validate ──► PR
+                                                          │
+                                                     FAIL └──► stop, report, no PR
 ```
 
 Every arrow into a slash command is a **fresh `claude -p` process** with no shared
 context. The spec file on disk is the only thing that crosses between planning and
 implementation — which is exactly why the planning commands are written to be
 self-contained.
+
+## Worktree isolation
+
+Every run happens in **its own git worktree**, cut from freshly-fetched
+`origin/<default-branch>` and living at `../<repo-name>-adw-worktrees/<adw_id>`
+(override with `ADW_WORKTREE_ROOT`). Your checkout is never involved:
+
+- A dirty working tree neither blocks a run nor leaks into its PR.
+- Your HEAD never moves — keep working while runs happen.
+- Concurrent runs on different issues cannot conflict (branch names embed the run id).
+- A successful run removes its worktree after the PR opens; a **failed run keeps
+  its worktree** so you can inspect exactly what the agent left behind. Clean up
+  with `git worktree remove --force <path>`.
+
+Two things make a fresh worktree usable, both handled at the worktree node:
+
+1. `.claude/` is git-excluded, so the worktree gets **copies** of `.claude/commands/`
+   and `.claude/PROJECT.md` from the main checkout (never `.claude/adw/` — that holds
+   `adw.env`'s secrets).
+2. Nothing git-ignored exists yet — no `node_modules`, no build outputs — so
+   `ADW_WORKTREE_SETUP` (e.g. `{{WORKTREE_SETUP_CMD}}`) runs inside the
+   worktree before planning. If it fails, the run aborts rather than letting
+   `/validate` fail a false negative on missing dependencies. If the install pulls
+   from a private registry, the process needs the registry token in its
+   environment (inherited from your shell, with `GITHUB_PAT` from `adw.env` as
+   fallback).
 
 ## Setup
 
@@ -112,10 +138,10 @@ blindly.
 
 | File | Role |
 |---|---|
-| `adw_run.py` | the pipeline — classify, branch, plan, implement, validate, PR |
+| `adw_run.py` | the pipeline — classify, worktree, setup, plan, implement, validate, PR |
 | `trigger_webhook.py` | FastAPI receiver; signature + allowlist gates |
 | `agent.py` | headless `claude -p` invocation, one fresh process per node |
-| `git_ops.py` | deterministic git/PR operations |
+| `git_ops.py` | deterministic git/PR operations; worktree lifecycle |
 | `github.py` | `gh` CLI wrapper; repo auto-detected from the git remote |
 | `data_types.py` | typed models; the enums are enforced return types for glue commands |
 | `config.py` | `adw.env` loading and validation |

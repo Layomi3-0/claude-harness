@@ -75,6 +75,9 @@ class AgentTemplateRequest(BaseModel):
     args: List[str] = []
     adw_id: str
     model: str = "sonnet"
+    # cwd for the claude process — the run's worktree. None falls back to the
+    # repo root (pre-worktree nodes like /classify_issue, which only read the issue).
+    working_dir: Optional[str] = None
 
 
 class AgentPromptResponse(BaseModel):

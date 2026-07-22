@@ -100,7 +100,7 @@ def execute_template(request: AgentTemplateRequest) -> AgentPromptResponse:
         with open(output_file, "w") as sink:
             result = subprocess.run(
                 cmd, stdout=sink, stderr=subprocess.PIPE, text=True,
-                env=_claude_env(), cwd=repo_root(),
+                env=_claude_env(), cwd=request.working_dir or repo_root(),
             )
     except Exception as e:
         return AgentPromptResponse(output=f"Error executing Claude Code: {e}", success=False)

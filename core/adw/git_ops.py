@@ -7,18 +7,39 @@ that genuinely need judgment.
 """
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from config import config
 from utils import repo_root
 
 TYPE_BY_CLASS = {"/plan_chore": "chore", "/plan_bug": "fix", "/plan_feature": "feat"}
 
+# The run's isolated worktree, once created. None means "no worktree yet" —
+# before the worktree node, and in tests.
+_workdir: Optional[Path] = None
 
-def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+
+def workdir() -> Path:
+    """Where git commands and pipeline agents operate: the run's worktree once
+    created, the repo root before that."""
+    return _workdir or repo_root()
+
+
+def active_worktree() -> Optional[Path]:
+    return _workdir
+
+
+def set_workdir(path: Optional[Path]) -> None:
+    global _workdir
+    _workdir = path
+
+
+def _git(*args: str, check: bool = True, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=check, cwd=repo_root()
+        ["git", *args], capture_output=True, text=True, check=check, cwd=cwd or workdir()
     )
 
 
@@ -28,9 +49,15 @@ def slugify(text: str, max_words: int = 6) -> str:
 
 
 def branch_name(issue_class: str, issue_number: int, adw_id: str, title: str) -> str:
-    """`{type}-{issue}-{adw_id}-{slug}` — the ADW id embedded so any branch traces
-    back to its run transcript."""
-    return f"{TYPE_BY_CLASS.get(issue_class, 'chore')}-{issue_number}-{adw_id}-{slugify(title)}"
+    """`{prefix}{type}-{issue}-{adw_id}-{slug}` — the ADW id embedded so any branch
+    traces back to its run transcript.
+
+    The prefix comes from ADW_BRANCH_PREFIX and is empty by default. Repos that
+    require one (`lkupo/`, `team/`) reject a push without it, which would otherwise
+    surface as a failed push at the very end of an otherwise successful run.
+    """
+    kind = TYPE_BY_CLASS.get(issue_class, "chore")
+    return f"{config.branch_prefix}{kind}-{issue_number}-{adw_id}-{slugify(title)}"
 
 
 def default_branch() -> str:
@@ -40,13 +67,80 @@ def default_branch() -> str:
     return "main"
 
 
-def create_branch(name: str) -> Tuple[bool, str]:
+def worktree_root() -> Path:
+    """Parent directory for run worktrees. A SIBLING of the repo, deliberately:
+    a full checkout nested inside the working tree would be scanned by Metro,
+    watchman, and Turbo, and would tempt `git add -A` accidents."""
+    if config.worktree_root:
+        return Path(config.worktree_root).expanduser()
+    return repo_root().parent / f"{repo_root().name}-adw-worktrees"
+
+
+# Copied into every fresh worktree. `.claude/` is git-excluded, so a worktree cut
+# from origin/<base> has NO slash commands and NO PROJECT.md — and the pipeline's
+# agents need both (/implement reads commands, /validate reads PROJECT.md).
+HARNESS_FILES = (".claude/commands", ".claude/PROJECT.md")
+
+
+def _copy_harness_files(worktree: Path) -> None:
+    """Copied rather than symlinked, so a run is immune to edits made in the main
+    checkout while it is in flight. Never copies .claude/adw — that would hand the
+    agent adw.env's secrets."""
+    for rel in HARNESS_FILES:
+        src, dst = repo_root() / rel, worktree / rel
+        if not src.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_dir():
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+
+
+def create_worktree(branch: str, adw_id: str) -> Tuple[bool, str]:
+    """Cut `branch` from freshly-fetched origin/<base> in the run's OWN worktree.
+
+    Replaces the old create_branch, which did `checkout main && pull` in the user's
+    working tree — that required a clean tree, moved the user's HEAD out from under
+    them, and made concurrent runs impossible. A worktree gives every run an
+    isolated copy based on origin/<base>, so the user's checkout (dirty or not)
+    can neither block a run nor leak into its PR.
+
+    Every step is still checked: a wrong base is not a warning, it invalidates the
+    whole run. The fetch is what makes "fresh" true — origin/<base> without it is
+    just whatever this machine last happened to see.
+    """
     base = default_branch()
-    for args in (("checkout", base), ("pull", "--ff-only"), ("checkout", "-b", name)):
-        result = _git(*args, check=False)
-        if result.returncode != 0 and args[0] == "checkout" and "-b" in args:
-            return False, f"Could not create branch {name}: {result.stderr}"
-    return True, name
+    path = worktree_root() / adw_id
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    steps = (
+        ("fetch", "origin", base),
+        ("worktree", "prune"),  # clear stale registrations from hand-deleted dirs
+        ("worktree", "add", "--no-track", "-b", branch, str(path), f"origin/{base}"),
+    )
+    for args in steps:
+        result = _git(*args, check=False, cwd=repo_root())
+        if result.returncode != 0:
+            return False, (
+                f"`git {' '.join(args)}` failed, so the run would not be based on "
+                f"an up-to-date {base}:\n{result.stderr.strip()}"
+            )
+
+    _copy_harness_files(path)
+    set_workdir(path)
+    return True, str(path)
+
+
+def remove_worktree() -> None:
+    """Cleanup after a SUCCESSFUL run. Failed runs keep their worktree on purpose —
+    it is the only place a human can inspect exactly what the agent left behind.
+    The branch survives removal; it is already pushed."""
+    path = _workdir
+    if path is None:
+        return
+    set_workdir(None)
+    _git("worktree", "remove", "--force", str(path), check=False, cwd=repo_root())
 
 
 def has_changes() -> bool:
@@ -61,10 +155,10 @@ def list_specs(directory: str) -> set:
     back a directory instead of a file — and it cannot distinguish a spec written by
     this run from one that was already sitting there uncommitted.
     """
-    base = repo_root() / directory
+    base = workdir() / directory
     if not base.is_dir():
         return set()
-    return {str(p.relative_to(repo_root())) for p in base.rglob("*.md")}
+    return {str(p.relative_to(workdir())) for p in base.rglob("*.md")}
 
 
 def newly_created(before: set, after: set) -> List[str]:
@@ -92,7 +186,7 @@ def create_pr(title: str, body: str, base: Optional[str] = None) -> Tuple[Option
         ["gh", "pr", "create", "--base", base or default_branch(), "--title", title, "--body", body],
         capture_output=True,
         text=True,
-        cwd=repo_root(),
+        cwd=workdir(),
     )
     if result.returncode != 0:
         return None, result.stderr
