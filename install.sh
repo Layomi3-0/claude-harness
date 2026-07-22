@@ -50,7 +50,12 @@ fi
 
 substitute() {
   # Replace every configured {{KEY}} in $1.
-  sed -i.bak -f "$SED_SCRIPT" "$1" && rm -f "$1.bak"
+  #
+  # LC_ALL=C makes sed treat the file as bytes. Without it, BSD sed aborts with
+  # "RE error: illegal byte sequence" on any file holding multi-byte characters
+  # under a non-UTF-8 locale — which is every ADW script, since they print emoji.
+  # Byte-wise substitution is safe here because the {{KEY}} patterns are ASCII.
+  LC_ALL=C sed -i.bak -f "$SED_SCRIPT" "$1" && rm -f "$1.bak"
 }
 
 copy_tree() {
@@ -97,6 +102,22 @@ fi
 CLAUDE_DIR="$TARGET_REPO/.claude"
 install_into "$CLAUDE_DIR"
 [ "$WITH_ADW" = "yes" ] && install_adw "$CLAUDE_DIR"
+
+# ── Per-project overlay ──
+# Project-specific files that don't belong in the generic core (e.g. a repo's own
+# /run-local command) live in overlays/<config-name>/, mirroring core/'s layout.
+# They install after core, so an overlay can also override a core file.
+OVERLAY_DIR="$HARNESS_DIR/overlays/$(basename "${CONFIG%.config}")"
+if [ -d "$OVERLAY_DIR" ]; then
+  for sub in agents commands standards; do
+    [ -d "$OVERLAY_DIR/$sub" ] || continue
+    mkdir -p "$CLAUDE_DIR/$sub"
+    cp -R "$OVERLAY_DIR/$sub/." "$CLAUDE_DIR/$sub/"
+    while IFS= read -r -d '' f; do substitute "$f"; done \
+      < <(find "$CLAUDE_DIR/$sub" -type f -print0)
+  done
+  echo "✓ project overlay → applied from ${OVERLAY_DIR#$HARNESS_DIR/}"
+fi
 
 # Stamp CLAUDE.md if the project doesn't have one yet. A stamped CLAUDE.md is
 # harness-generated, so we also hide it from the repo. A pre-existing one is the

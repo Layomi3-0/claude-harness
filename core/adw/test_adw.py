@@ -45,7 +45,11 @@ check("case-insensitive", cfg.is_authorized("layomi3-0"), True)
 check("stranger refused", cfg.is_authorized("attacker"), False)
 check("empty login refused", cfg.is_authorized(""), False)
 
-empty = AdwConfig(allowed_authors=[])
+# Every field is set explicitly: AdwConfig's defaults are evaluated from the
+# environment at import time, so an installed adw.env would otherwise decide what
+# this test asserts — and the missing-secret case would become unreachable exactly
+# on the machines where it matters.
+empty = AdwConfig(allowed_authors=[], webhook_secret="")
 check("empty allowlist refuses owner (fail-closed)", empty.is_authorized("Layomi3-0"), False)
 check("validate flags empty allowlist", any("ALLOWED_AUTHORS" in e for e in empty.validate()), True)
 check("validate flags missing secret", any("WEBHOOK_SECRET" in e for e in empty.validate()), True)
@@ -119,12 +123,79 @@ with tempfile.TemporaryDirectory() as tmp:
         git_ops.repo_root = original
 
 print("\nbranch naming")
+git_ops.config.branch_prefix = ""
 check("slugify", git_ops.slugify("Fix the Login Redirect!!"), "fix-the-login-redirect")
 check("slugify caps at 6 words", git_ops.slugify("a b c d e f g h"), "a-b-c-d-e-f")
 check("slugify empty", git_ops.slugify("!!!"), "untitled")
 check("bug branch", git_ops.branch_name("/plan_bug", 42, "abc12345", "Fix login"), "fix-42-abc12345-fix-login")
 check("feature prefix", git_ops.branch_name("/plan_feature", 7, "d", "x").split("-")[0], "feat")
 check("chore prefix", git_ops.branch_name("/plan_chore", 7, "d", "x").split("-")[0], "chore")
+
+git_ops.config.branch_prefix = "lkupo/"
+check(
+    "repo-required branch prefix is applied",
+    git_ops.branch_name("/plan_bug", 42, "abc12345", "Fix login"),
+    "lkupo/fix-42-abc12345-fix-login",
+)
+git_ops.config.branch_prefix = ""
+
+print("\nworktree base  (runs must be cut from fresh origin/<base>, isolated from the user's tree)")
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp) / "repo"
+    root.mkdir()
+    original = git_ops.repo_root
+    original_wt_root = git_ops.config.worktree_root
+    git_ops.repo_root = lambda: root
+    git_ops.config.worktree_root = str(Path(tmp) / "worktrees")
+    try:
+        import subprocess as sp
+
+        # A real origin, because create_worktree fetches before branching — without
+        # a remote it would fail for a reason no real repo has.
+        origin = Path(tmp) / "origin.git"
+        sp.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+        sp.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+        sp.run(["git", "config", "user.email", "t@t.t"], cwd=root, check=True)
+        sp.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+        (root / "f.txt").write_text("base")
+        sp.run(["git", "add", "-A"], cwd=root, check=True)
+        sp.run(["git", "commit", "-qm", "init"], cwd=root, check=True)
+        sp.run(["git", "remote", "add", "origin", str(origin)], cwd=root, check=True)
+        sp.run(["git", "push", "-q", "-u", "origin", "main"], cwd=root, check=True)
+
+        ok, wt_path = git_ops.create_worktree("chore-1-aaa-clean-tree", "aaa")
+        check("worktree is created", ok, True)
+        check("worktree has the base commit", (Path(wt_path) / "f.txt").exists(), True)
+        check("workdir switches to the worktree", str(git_ops.workdir()), wt_path)
+        git_ops.remove_worktree()
+        check("remove_worktree resets workdir to repo root", git_ops.workdir(), root)
+        check("remove_worktree deletes the directory", Path(wt_path).exists(), False)
+
+        # THE POINT of worktrees: a dirty main checkout neither blocks the run
+        # (old create_branch refused) nor leaks into it (old `git add -A` swept
+        # uncommitted edits into the PR).
+        (root / "stray.txt").write_text("unrelated work in progress")
+        ok, wt_path = git_ops.create_worktree("chore-2-bbb-dirty-tree", "bbb")
+        check("dirty main tree: run is NOT blocked", ok, True)
+        check("dirty main tree: stray file does NOT leak in", (Path(wt_path) / "stray.txt").exists(), False)
+
+        # origin moves ahead → the NEXT run must see the new commit (the fetch is
+        # what makes "fresh from main" true, not just origin/<base> from cache).
+        clone2 = Path(tmp) / "clone2"
+        sp.run(["git", "clone", "-q", str(origin), str(clone2)], check=True)
+        sp.run(["git", "config", "user.email", "t@t.t"], cwd=clone2, check=True)
+        sp.run(["git", "config", "user.name", "t"], cwd=clone2, check=True)
+        (clone2 / "newer.txt").write_text("landed on origin after our last fetch")
+        sp.run(["git", "add", "-A"], cwd=clone2, check=True)
+        sp.run(["git", "commit", "-qm", "newer"], cwd=clone2, check=True)
+        sp.run(["git", "push", "-q"], cwd=clone2, check=True)
+
+        ok, wt_path = git_ops.create_worktree("chore-3-ccc-fresh-base", "ccc")
+        check("new origin commit is fetched into the base", ok and (Path(wt_path) / "newer.txt").exists(), True)
+    finally:
+        git_ops.repo_root = original
+        git_ops.config.worktree_root = original_wt_root
+        git_ops.set_workdir(None)
 
 print()
 if failures:

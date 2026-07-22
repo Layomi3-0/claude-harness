@@ -34,6 +34,15 @@ class AdwConfig:
     trigger_phrase: str = os.getenv("ADW_TRIGGER_PHRASE", "adw").strip().lower()
     webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     port: int = int(os.getenv("ADW_PORT", "8001"))
+    # Prepended to every ADW branch, for repos whose hooks or rules require it.
+    branch_prefix: str = os.getenv("ADW_BRANCH_PREFIX", "")
+    # Where run worktrees live. Blank means a sibling of the repo:
+    # ../<repo-name>-adw-worktrees/<adw_id>
+    worktree_root: str = os.getenv("ADW_WORKTREE_ROOT", "")
+    # Shell command run inside each fresh worktree before planning (dependency
+    # install, codegen). Blank skips setup. Repo-specific by nature, so it lives
+    # in adw.env rather than in code.
+    worktree_setup: str = os.getenv("ADW_WORKTREE_SETUP", "")
     model: str = os.getenv("ADW_MODEL", "sonnet")
     # Blank means "use Claude Code's own auth" — normally a claude.ai subscription.
     # Deliberately file-only: see _FILE_ONLY above.

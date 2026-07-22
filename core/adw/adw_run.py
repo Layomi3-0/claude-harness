@@ -16,6 +16,8 @@ branch pushed for a human — rather than opening a PR whose plan claims "zero
 regressions" that nothing ever checked.
 """
 
+import os
+import subprocess
 import sys
 from typing import Optional, Tuple
 
@@ -75,6 +77,14 @@ class Pipeline:
         comment_on_issue(self.issue_number, format_comment(self.adw_id, agent, message))
 
     def abort(self, agent: str, message: str) -> None:
+        # A failed run's worktree is kept deliberately — it is the only place a
+        # human can inspect what the agent actually left behind.
+        worktree = git_ops.active_worktree()
+        if worktree:
+            message += (
+                f"\n\nWorktree kept for inspection: `{worktree}` "
+                f"(remove with `git worktree remove --force {worktree}`)"
+            )
         self.logger.error(message)
         comment_on_issue(self.issue_number, format_comment(self.adw_id, agent, f"❌ {message}"))
         sys.exit(1)
@@ -83,6 +93,7 @@ class Pipeline:
         request = AgentTemplateRequest(
             agent_name=agent, slash_command=command, args=args,
             adw_id=self.adw_id, model=config.model,
+            working_dir=str(worktree) if (worktree := git_ops.active_worktree()) else None,
         )
         response = run_template(request, self.logger)
         if not response.success:
@@ -111,13 +122,46 @@ class Pipeline:
         self.say("classifier", f"✅ Classified as `{command}`")
         return command
 
-    def branch(self, issue_class: str) -> str:
+    def worktree(self, issue_class: str) -> str:
+        """Every run gets its own worktree cut from freshly-fetched origin/<base>,
+        so runs never touch the user's checkout and can overlap with each other."""
         name = git_ops.branch_name(issue_class, self.issue_number, self.adw_id, self.issue.title)
-        ok, detail = git_ops.create_branch(name)
+        ok, detail = git_ops.create_worktree(name, self.adw_id)
         if not ok:
             self.abort("ops", detail)
-        self.say("ops", f"✅ Working on branch `{name}`")
+        self.say(
+            "ops",
+            f"✅ Working on branch `{name}` in an isolated worktree "
+            f"(`{detail}`, cut from fresh `origin/{git_ops.default_branch()}`)",
+        )
         return name
+
+    def setup_workspace(self) -> None:
+        """A fresh worktree has nothing git-ignored: no node_modules, no build
+        outputs. Without this step /validate fails on missing dependencies and the
+        gate reports a false negative. The command is repo-specific, so it comes
+        from ADW_WORKTREE_SETUP in adw.env; blank skips."""
+        if not config.worktree_setup:
+            return
+        self.say("ops", f"📦 Preparing worktree: `{config.worktree_setup}`")
+        env = os.environ.copy()
+        # This repo's .npmrc resolves ${GITHUB_TOKEN} for the private registry.
+        # Fall back to the configured PAT when launched from an env without it.
+        if config.github_pat and not env.get("GITHUB_TOKEN"):
+            env["GITHUB_TOKEN"] = config.github_pat
+        try:
+            result = subprocess.run(
+                config.worktree_setup, shell=True, cwd=git_ops.workdir(),
+                capture_output=True, text=True, env=env, timeout=1200,
+            )
+        except subprocess.TimeoutExpired:
+            self.abort("ops", f"Worktree setup timed out after 20m: `{config.worktree_setup}`")
+        if result.returncode != 0:
+            self.abort(
+                "ops",
+                f"Worktree setup failed (`{config.worktree_setup}`):\n"
+                f"```\n{(result.stderr or result.stdout)[-1200:]}\n```",
+            )
 
     def plan(self, issue_class: str) -> str:
         # Snapshot first: the repo may already hold uncommitted specs from earlier
@@ -177,7 +221,8 @@ class Pipeline:
         add_label(self.issue_number, "adw-running")
 
         issue_class = self.classify()
-        branch = self.branch(issue_class)
+        branch = self.worktree(issue_class)
+        self.setup_workspace()
         plan_file = self.plan(issue_class)
         self.implement(plan_file)
 
@@ -194,7 +239,8 @@ class Pipeline:
             self.say(
                 "validator",
                 f"❌ **Validation failed — no PR opened.**\n\n```\n{result.detail[:1500]}\n```\n\n"
-                f"Branch `{branch}` is pushed. Review it, or comment "
+                f"Branch `{branch}` is pushed and the worktree is kept at "
+                f"`{git_ops.workdir()}` for inspection. Review it, or comment "
                 f"`{config.trigger_phrase}` to retry.",
             )
             add_label(self.issue_number, "adw-failed")
@@ -202,6 +248,7 @@ class Pipeline:
 
         self.say("validator", "✅ Validation passed")
         url = self.open_pr(issue_class, branch, plan_file)
+        git_ops.remove_worktree()
         self.say("ops", f"🎉 Pull request opened: {url}")
 
 
