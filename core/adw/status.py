@@ -56,7 +56,8 @@ def tool_calls(transcript: Path, limit: int = 8) -> list[str]:
                 args.get("file_path") or args.get("pattern")
                 or args.get("command") or args.get("path") or ""
             )
-            calls.append(f"{block.get('name')}: {str(detail).splitlines()[0][:70]}")
+            first_line = (str(detail).splitlines() or [""])[0]
+            calls.append(f"{block.get('name')}: {first_line[:70]}")
     return calls[-limit:]
 
 
