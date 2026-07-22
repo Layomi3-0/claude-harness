@@ -63,9 +63,16 @@ copy_tree() {
   local src="$HARNESS_DIR/core/$1" dest="$2"
   mkdir -p "$dest"
   cp -R "$src/." "$dest/"
-  local f
-  while IFS= read -r -d '' f; do substitute "$f"; done \
-    < <(find "$dest" -type f -print0)
+  # Substitute ONLY the files this copy brought in — never files that already
+  # lived in dest. Substituting dest wholesale once rewrote .claude/adw/runs/
+  # transcripts that a LIVE run held open: sed -i swaps the inode, the running
+  # pipeline keeps writing to the orphaned one, and the run is reported failed
+  # ("No result message in agent transcript") even though the agent succeeded.
+  local f rel
+  while IFS= read -r -d '' f; do
+    rel="${f#"$src"/}"
+    substitute "$dest/$rel"
+  done < <(find "$src" -type f -print0)
 }
 
 install_into() {
@@ -113,8 +120,9 @@ if [ -d "$OVERLAY_DIR" ]; then
     [ -d "$OVERLAY_DIR/$sub" ] || continue
     mkdir -p "$CLAUDE_DIR/$sub"
     cp -R "$OVERLAY_DIR/$sub/." "$CLAUDE_DIR/$sub/"
-    while IFS= read -r -d '' f; do substitute "$f"; done \
-      < <(find "$CLAUDE_DIR/$sub" -type f -print0)
+    # Same rule as copy_tree: substitute only what the overlay brought in.
+    while IFS= read -r -d '' f; do substitute "$CLAUDE_DIR/$sub/${f#"$OVERLAY_DIR/$sub"/}"; done \
+      < <(find "$OVERLAY_DIR/$sub" -type f -print0)
   done
   echo "✓ project overlay → applied from ${OVERLAY_DIR#$HARNESS_DIR/}"
 fi
