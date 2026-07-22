@@ -91,5 +91,13 @@ def add_label(issue_number: int | str, label: str) -> None:
     )
 
 
+def remove_label(issue_number: int | str, label: str) -> None:
+    """Best-effort label removal (mirror of add_label)."""
+    _run_gh(
+        ["gh", "issue", "edit", str(issue_number), "-R", repo_path(), "--remove-label", label],
+        check=False,
+    )
+
+
 def format_comment(adw_id: str, agent: str, message: str) -> str:
     return f"`{adw_id}` **{agent}** — {message}"
